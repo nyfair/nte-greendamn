@@ -1,0 +1,28 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - name: Prepare
+      run: git config --global core.autocrlf false
+    - uses: actions/checkout@v6
+      with:
+        submodules: recursive
+    - name: Compile
+      run: |
+        rustup set profile minimal
+        rustup update
+        cargo build --release
+        move target\release\nte_greendamn.dll .\nte-greendamn.asi
+    - name: Upload
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: nte-greendamn.asi
+        tag: latest
+        overwrite: true
