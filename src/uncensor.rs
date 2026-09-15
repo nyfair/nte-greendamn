@@ -16,8 +16,6 @@ const PLAYER_FADE_DISTANCE_SQUARE: usize = 0x3B34;
 const PLAYER_HIDE_DISTANCE_SQUARE: usize = 0x3B38;
 // class UCurveFloat*                            PlayerPitchFadeCurve;                              // 0x3B40(0x0008)(Edit, ZeroConstructor, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPrivate)
 const PLAYER_PITCH_FADE_CURVE: usize = 0x3B40;
-// AHTPlayerCameraManager's VTable RVA
-const VTABLE_RVA_HINT: usize = 0xD7E0BC0;
 // constexpr int32 GObjects          = 0x0F4D9C80;    GUObjectArray RVA -> GObjects - 0x10;
 const GUOBJ_RVA_HINT: usize = 0xF4D9C70;
 
@@ -37,10 +35,14 @@ static GUOBJ: AtomicUsize = AtomicUsize::new(0);
 static GUOBJ_CONFIRMED: AtomicU32 = AtomicU32::new(0);
 static LAST_INDEX: AtomicU32 = AtomicU32::new(0);
 static ATTEMPT: AtomicU32 = AtomicU32::new(0);
+// vtable of the class we patch, learned at runtime (0 = not learned yet)
+static TARGET: AtomicUsize = AtomicUsize::new(0);
 
 struct Stats {
     elems: u64,
     same_class: u64,
+    clean: u64,
+    mismatch: u64,
     patched: usize,
     cdo: u64,
 }
@@ -69,6 +71,8 @@ pub fn recon(module: &Module) -> usize {
     let mut stats = Stats {
         elems: 0,
         same_class: 0,
+        clean: 0,
+        mismatch: 0,
         patched: 0,
         cdo: 0,
     };
@@ -87,8 +91,12 @@ pub fn recon(module: &Module) -> usize {
         b.push_u64(stats.elems);
         b.push_str(" | same class ");
         b.push_u64(stats.same_class);
-        b.push_str(" (CDO/archetype ");
+        b.push_str(" (clean ");
+        b.push_u64(stats.clean);
+        b.push_str(", CDO ");
         b.push_u64(stats.cdo);
+        b.push_str(", mismatch ");
+        b.push_u64(stats.mismatch);
         b.push_str(") | rewrote ");
         b.push_u64(stats.patched as u64);
         log_buf(&b);
@@ -181,15 +189,38 @@ fn handle(module: &Module, obj: usize, stats: &mut Stats) -> usize {
         Some(v) => v as usize,
         None => return 0,
     };
-    if vtable != module.base + VTABLE_RVA_HINT {
+    if !module.contains(vtable) {
         return 0;
     }
     if is_cdo_or_archetype(obj) {
         stats.cdo += 1;
         return 0;
     }
+
+    let known = TARGET.load(Ordering::Relaxed);
+    if known == 0 {
+        // the field values the game ships are the signature,
+        // and the vtable of the first object carrying them is the one to match from now on
+        if !shipped_values(obj) {
+            return 0;
+        }
+        TARGET.store(vtable, Ordering::Relaxed);
+        log_learned(module, vtable);
+    } else if vtable != known {
+        return 0;
+    }
+
     stats.same_class += 1;
     if !vtable_like(module, vtable) {
+        return 0;
+    }
+    if is_clean(obj) {
+        stats.clean += 1;
+        return 0;
+    }
+    if !shipped_values(obj) {
+        log_mismatch(obj);
+        stats.mismatch += 1;
         return 0;
     }
 
@@ -201,6 +232,49 @@ fn handle(module: &Module, obj: usize, stats: &mut Stats) -> usize {
     } else {
         0
     }
+}
+
+/// true when both curve pointers are null and both distances are zeroed, i.e. the object is
+/// already in the state we keep it in
+fn is_clean(obj: usize) -> bool {
+    mem::read_u64(obj + ACTOR_FADE_CURVE) == Some(0)
+        && mem::read_u64(obj + PLAYER_PITCH_FADE_CURVE) == Some(0)
+        && mem::read_f32(obj + PLAYER_FADE_DISTANCE_SQUARE) == Some(0.0)
+        && mem::read_f32(obj + PLAYER_HIDE_DISTANCE_SQUARE) == Some(0.0)
+}
+
+/// true when the fade fields still hold the values the game ships them with; used both to learn
+/// the class vtable and to refuse writes when the member layout no longer matches
+fn shipped_values(obj: usize) -> bool {
+    is_default(
+        mem::read_f32(obj + PLAYER_FADE_SPEED).unwrap_or(f32::NAN),
+        mem::read_f32(obj + PLAYER_FADE_DISTANCE_SQUARE).unwrap_or(f32::NAN),
+        mem::read_f32(obj + PLAYER_HIDE_DISTANCE_SQUARE).unwrap_or(f32::NAN),
+    )
+}
+
+fn log_learned(module: &Module, vtable: usize) {
+    let mut b = Buf::new();
+    b.push_str("target class learned: vtable 0x");
+    b.push_hex(vtable as u64, 0);
+    b.push_str(" (RVA 0x");
+    b.push_hex(vtable.wrapping_sub(module.base) as u64, 0);
+    b.push_str(")");
+    log_buf(&b);
+}
+
+fn log_mismatch(obj: usize) {
+    let mut b = Buf::new();
+    b.push_str("  layout mismatch @0x");
+    b.push_hex(obj as u64, 0);
+    b.push_str(": values ");
+    b.push_f32(mem::read_f32(obj + PLAYER_FADE_SPEED).unwrap_or(f32::NAN));
+    b.push_byte(b'/');
+    b.push_f32(mem::read_f32(obj + PLAYER_FADE_DISTANCE_SQUARE).unwrap_or(f32::NAN));
+    b.push_byte(b'/');
+    b.push_f32(mem::read_f32(obj + PLAYER_HIDE_DISTANCE_SQUARE).unwrap_or(f32::NAN));
+    b.push_str(", refused to write (offsets from another game build?)");
+    log_buf(&b);
 }
 
 fn is_cdo_or_archetype(obj: usize) -> bool {
