@@ -12,7 +12,7 @@ const ACTOR_FADE_CURVE: usize = 0x37C8;
 const PLAYER_FADE_SPEED: usize = 0x3B30;
 // float                                         PlayerFadeDistanceSquare;                          // 0x3B34(0x0004)(Edit, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPrivate)
 const PLAYER_FADE_DISTANCE_SQUARE: usize = 0x3B34;
-// float                                         PlayerHideDistanceSquare;                          // 0x3B38(0x0004)(Edit, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPrivate)pub const PLAYER_HIDE_DISTANCE_SQUARE: usize = 0x3B38;
+// float                                         PlayerHideDistanceSquare;                          // 0x3B38(0x0004)(Edit, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPrivate)
 const PLAYER_HIDE_DISTANCE_SQUARE: usize = 0x3B38;
 // class UCurveFloat*                            PlayerPitchFadeCurve;                              // 0x3B40(0x0008)(Edit, ZeroConstructor, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPrivate)
 const PLAYER_PITCH_FADE_CURVE: usize = 0x3B40;
