@@ -3,8 +3,7 @@ use core::cmp::min;
 use crate::buf::Buf;
 use crate::ffi;
 use crate::log;
-use crate::log_buf;
-use crate::mem::{self, Module};
+use crate::mem::*;
 
 /// mov al, 1; ret - makes the target function always return true
 const PATCH: [u8; 3] = [0xB0, 0x01, 0xC3];
@@ -73,7 +72,7 @@ fn find(module: &Module, ida: &str) -> Option<usize> {
 
     while addr < end {
         let want = min(CHUNK, end - addr);
-        let got = unsafe { mem::read_raw(addr, win[carry..].as_mut_ptr(), want) };
+        let got = unsafe { read_raw(addr, win[carry..].as_mut_ptr(), want) };
         if got == 0 {
             // unreadable page (gap between sections): skip it
             addr += want;
@@ -100,10 +99,10 @@ fn find(module: &Module, ida: &str) -> Option<usize> {
 /// Reads the jump at `at` (E9 jmp / E8 call) and computes its destination
 fn follow_jump(at: usize) -> Option<usize> {
     let mut op = 0u8;
-    if unsafe { mem::read_raw(at, &mut op, 1) } != 1 || (op != 0xE9 && op != 0xE8) {
+    if unsafe { read_raw(at, &mut op, 1) } != 1 || (op != 0xE9 && op != 0xE8) {
         return None;
     }
-    let rel = mem::read_u32(at + 1)? as i32;
+    let rel = read_u32(at + 1)? as i32;
     Some(at.wrapping_add(5).wrapping_add_signed(rel as isize))
 }
 
@@ -124,7 +123,7 @@ fn patch(at: usize) -> bool {
 
 fn read_back(at: usize) -> [u8; PATCH.len()] {
     let mut b = [0u8; PATCH.len()];
-    unsafe { mem::read_raw(at, b.as_mut_ptr(), b.len()) };
+    unsafe { read_raw(at, b.as_mut_ptr(), b.len()) };
     b
 }
 
@@ -134,7 +133,7 @@ fn log_hex(prefix: &str, v: u64, suffix: &str) {
     b.push_str(prefix);
     b.push_hex(v, 0);
     b.push_str(suffix);
-    log_buf(&b);
+    log::log_buf(&b);
 }
 
 /// Finds the signature, follows the jmp/call behind it to the target function and rewrites
@@ -159,7 +158,7 @@ pub fn universal(module: &Module) {
         }
         None => b.push_str(", not E9/E8 at that address"),
     }
-    log_buf(&b);
+    log::log_buf(&b);
 
     let Some(target) = target else {
         return;

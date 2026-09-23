@@ -55,10 +55,6 @@ extern "system" fn worker_thread(_param: *mut c_void) -> ffi::DWORD {
     0
 }
 
-pub fn log_buf(b: &Buf) {
-    log::line(unsafe { core::str::from_utf8_unchecked(b.as_bytes()) });
-}
-
 fn run() {
     if !log::init() {
         return;
@@ -76,7 +72,7 @@ fn run() {
     b.push_hex(module.base as u64, 0);
     b.push_str(" size=0x");
     b.push_hex(module.size as u64, 0);
-    log_buf(&b);
+    log::log_buf(&b);
     log::line("nte-greendamn build 2026-09-23c (cut)");
 
     // enable the ue mod-support
@@ -100,7 +96,7 @@ fn run() {
             b.push_str(" patched (");
             b.push_u64(uncensor::repatched());
             b.push_str(" re)");
-            log_buf(&b);
+            log::log_buf(&b);
         }
 
         unsafe { ffi::Sleep(TICK_MS) };

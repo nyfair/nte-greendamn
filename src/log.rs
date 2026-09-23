@@ -110,3 +110,7 @@ fn write_all(handle: isize, data: &[u8]) {
         off += written as usize;
     }
 }
+
+pub fn log_buf(b: &Buf) {
+    line(unsafe { core::str::from_utf8_unchecked(b.as_bytes()) });
+}

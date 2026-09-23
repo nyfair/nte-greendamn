@@ -2,8 +2,7 @@ use core::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 
 use crate::buf::Buf;
 use crate::log;
-use crate::log_buf;
-use crate::mem::{self, Module};
+use crate::mem::*;
 
 // Offsets::GWorld
 const GWORLD_RVA: usize = 0x0F0B6DB0;
@@ -105,29 +104,29 @@ pub fn repatched() -> u64 {
 
 /// Resolve the current camera manager through the controller chain. None while loading / between worlds.
 fn resolve(module: &Module) -> Option<usize> {
-    let world = mem::read_u64(module.base + GWORLD_RVA).unwrap_or(0) as usize;
+    let world = read_u64(module.base + GWORLD_RVA).unwrap_or(0) as usize;
     if world == 0 || !valid_object(module, world) {
         return None;
     }
-    let gi = mem::read_u64(world + OFF_WORLD_GI).unwrap_or(0) as usize;
+    let gi = read_u64(world + OFF_WORLD_GI).unwrap_or(0) as usize;
     if gi == 0 || !valid_object(module, gi) {
         return None;
     }
     let players = gi + OFF_GI_PLAYERS;
-    let data = mem::read_u64(players + OFF_TARRAY_DATA).unwrap_or(0) as usize;
-    let num = mem::read_u32(players + OFF_TARRAY_NUM).unwrap_or(0);
+    let data = read_u64(players + OFF_TARRAY_DATA).unwrap_or(0) as usize;
+    let num = read_u32(players + OFF_TARRAY_NUM).unwrap_or(0);
     if data == 0 || num == 0 {
         return None;
     }
-    let lp = mem::read_u64(data).unwrap_or(0) as usize;
+    let lp = read_u64(data).unwrap_or(0) as usize;
     if lp == 0 || !valid_object(module, lp) {
         return None;
     }
-    let pc = mem::read_u64(lp + OFF_PLAYER_PC).unwrap_or(0) as usize;
+    let pc = read_u64(lp + OFF_PLAYER_PC).unwrap_or(0) as usize;
     if pc == 0 || !valid_object(module, pc) {
         return None;
     }
-    let mgr = mem::read_u64(pc + OFF_PC_MANAGER).unwrap_or(0) as usize;
+    let mgr = read_u64(pc + OFF_PC_MANAGER).unwrap_or(0) as usize;
     if mgr == 0 || !valid_object(module, mgr) {
         return None;
     }
@@ -135,21 +134,21 @@ fn resolve(module: &Module) -> Option<usize> {
 }
 
 fn valid_object(module: &Module, obj: usize) -> bool {
-    match mem::read_u64(obj) {
+    match read_u64(obj) {
         Some(v) => v != 0 && module.contains(v as usize),
         None => false,
     }
 }
 
 fn is_cdo_or_archetype(obj: usize) -> bool {
-    matches!(mem::read_u32(obj + 0x08), Some(f) if f & RF_CDO_OR_ARCHETYPE != 0)
+    matches!(read_u32(obj + 0x08), Some(f) if f & RF_CDO_OR_ARCHETYPE != 0)
 }
 
 fn shipped_values(obj: usize) -> bool {
     is_default(
-        mem::read_f32(obj + PLAYER_FADE_SPEED).unwrap_or(f32::NAN),
-        mem::read_f32(obj + PLAYER_FADE_DISTANCE_SQUARE).unwrap_or(f32::NAN),
-        mem::read_f32(obj + PLAYER_HIDE_DISTANCE_SQUARE).unwrap_or(f32::NAN),
+        read_f32(obj + PLAYER_FADE_SPEED).unwrap_or(f32::NAN),
+        read_f32(obj + PLAYER_FADE_DISTANCE_SQUARE).unwrap_or(f32::NAN),
+        read_f32(obj + PLAYER_HIDE_DISTANCE_SQUARE).unwrap_or(f32::NAN),
     )
 }
 
@@ -164,23 +163,23 @@ fn intact_reason(mgr: usize) -> u8 {
     let mut i = 0usize;
     while i < SETTINGS.len() {
         let base = mgr + SETTINGS[i];
-        if mem::read_u8(base + OFF_FADE_AMEND) != Some(1)
-            || mem::read_u8(base + OFF_HIDE_AMEND) != Some(1)
+        if read_u8(base + OFF_FADE_AMEND) != Some(1)
+            || read_u8(base + OFF_HIDE_AMEND) != Some(1)
         {
             return BROKEN_AMEND;
         }
-        if mem::read_f32(base + OFF_FADE_TARGET) != Some(0.0)
-            || mem::read_f32(base + OFF_HIDE_TARGET) != Some(0.0)
+        if read_f32(base + OFF_FADE_TARGET) != Some(0.0)
+            || read_f32(base + OFF_HIDE_TARGET) != Some(0.0)
         {
             return BROKEN_TARGET;
         }
         i += 1;
     }
-    if mem::read_u64(mgr + ACTOR_FADE_CURVE) == Some(0)
-        && mem::read_u64(mgr + PLAYER_PITCH_FADE_CURVE) == Some(0)
-        && mem::read_f32(mgr + COLLISION_FADE_DURATION) == Some(0.0)
-        && mem::read_f32(mgr + PLAYER_FADE_DISTANCE_SQUARE) == Some(0.0)
-        && mem::read_f32(mgr + PLAYER_HIDE_DISTANCE_SQUARE) == Some(0.0)
+    if read_u64(mgr + ACTOR_FADE_CURVE) == Some(0)
+        && read_u64(mgr + PLAYER_PITCH_FADE_CURVE) == Some(0)
+        && read_f32(mgr + COLLISION_FADE_DURATION) == Some(0.0)
+        && read_f32(mgr + PLAYER_FADE_DISTANCE_SQUARE) == Some(0.0)
+        && read_f32(mgr + PLAYER_HIDE_DISTANCE_SQUARE) == Some(0.0)
     {
         INTACT_OK
     } else {
@@ -194,17 +193,17 @@ fn patch(mgr: usize) -> bool {
     let mut i = 0usize;
     while i < SETTINGS.len() {
         let base = mgr + SETTINGS[i];
-        ok &= mem::write_u8(base + OFF_FADE_AMEND, 1);
-        ok &= mem::write_f32(base + OFF_FADE_TARGET, 0.0);
-        ok &= mem::write_u8(base + OFF_HIDE_AMEND, 1);
-        ok &= mem::write_f32(base + OFF_HIDE_TARGET, 0.0);
+        ok &= write_u8(base + OFF_FADE_AMEND, 1);
+        ok &= write_f32(base + OFF_FADE_TARGET, 0.0);
+        ok &= write_u8(base + OFF_HIDE_AMEND, 1);
+        ok &= write_f32(base + OFF_HIDE_TARGET, 0.0);
         i += 1;
     }
-    ok &= mem::write_u64(mgr + ACTOR_FADE_CURVE, 0);
-    ok &= mem::write_u64(mgr + PLAYER_PITCH_FADE_CURVE, 0);
-    ok &= mem::write_f32(mgr + COLLISION_FADE_DURATION, 0.0);
-    ok &= mem::write_f32(mgr + PLAYER_FADE_DISTANCE_SQUARE, 0.0);
-    ok &= mem::write_f32(mgr + PLAYER_HIDE_DISTANCE_SQUARE, 0.0);
+    ok &= write_u64(mgr + ACTOR_FADE_CURVE, 0);
+    ok &= write_u64(mgr + PLAYER_PITCH_FADE_CURVE, 0);
+    ok &= write_f32(mgr + COLLISION_FADE_DURATION, 0.0);
+    ok &= write_f32(mgr + PLAYER_FADE_DISTANCE_SQUARE, 0.0);
+    ok &= write_f32(mgr + PLAYER_HIDE_DISTANCE_SQUARE, 0.0);
     ok
 }
 
@@ -217,7 +216,7 @@ pub fn tick(module: &Module) {
         return;
     }
 
-    let vtable = match mem::read_u64(mgr) {
+    let vtable = match read_u64(mgr) {
         Some(v) => v as usize,
         None => return,
     };
@@ -243,7 +242,7 @@ pub fn tick(module: &Module) {
         let mut b = Buf::new();
         b.push_str("manager 0x");
         b.push_hex(mgr as u64, 0);
-        log_buf(&b);
+        log::log_buf(&b);
     }
 
     let reason = intact_reason(mgr);
@@ -276,7 +275,7 @@ pub fn tick(module: &Module) {
         } else {
             " (cached restored)"
         });
-        log_buf(&b);
+        log::log_buf(&b);
     }
 }
 
@@ -287,12 +286,12 @@ fn log_learned(module: &Module, vtable: usize) {
     b.push_str(" (RVA 0x");
     b.push_hex(vtable.wrapping_sub(module.base) as u64, 0);
     b.push_str(")");
-    log_buf(&b);
+    log::log_buf(&b);
 }
 
 fn log_patched(mgr: usize) {
     let mut b = Buf::new();
     b.push_str("  patched manager 0x");
     b.push_hex(mgr as u64, 0);
-    log_buf(&b);
+    log::log_buf(&b);
 }

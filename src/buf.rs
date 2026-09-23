@@ -100,48 +100,4 @@ impl Buf {
             self.push_byte(tmp[n]);
         }
     }
-
-    pub fn push_f32(&mut self, v: f32) {
-        if v.is_nan() {
-            self.push_str("NaN");
-            return;
-        }
-        if v.is_infinite() {
-            self.push_str(if v > 0.0 { "inf" } else { "-inf" });
-            return;
-        }
-
-        let neg = v < 0.0;
-        let a = if neg { -v } else { v };
-        if neg {
-            self.push_byte(b'-');
-        }
-
-        if a >= 1.0e15 {
-            self.push_u64(a as u64);
-            return;
-        }
-
-        let ip = a as u64;
-        self.push_u64(ip);
-
-        let mut frac = ((a - ip as f32) * 10000.0 + 0.5) as u32;
-        if frac >= 10000 {
-            frac = 9999;
-        }
-        let mut digits = [0u8; 4];
-        let mut f = frac;
-        let mut i = 4;
-        while i > 0 {
-            i -= 1;
-            digits[i] = b'0' + (f % 10) as u8;
-            f /= 10;
-        }
-        let mut keep = 4;
-        while keep > 1 && digits[keep - 1] == b'0' {
-            keep -= 1;
-        }
-        self.push_byte(b'.');
-        self.push_bytes(&digits[..keep]);
-    }
 }
