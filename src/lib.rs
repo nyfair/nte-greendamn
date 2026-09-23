@@ -14,10 +14,8 @@ use core::panic::PanicInfo;
 use buf::Buf;
 
 const TARGET_MODULE: &[u8] = b"HTGame.exe";
-const TICK_MS: u32 = 1000;
+const TICK_MS: u32 = 2_500;
 const HEARTBEAT_MS: u64 = 60_000;
-// one camera manager per world: the login screen one and the scene one, then we are done
-const DONE_AFTER: u64 = 2;
 
 #[panic_handler]
 fn on_panic(_info: &PanicInfo) -> ! {
@@ -79,37 +77,29 @@ fn run() {
     b.push_str(" size=0x");
     b.push_hex(module.size as u64, 0);
     log_buf(&b);
+    log::line("nte-greendamn build 2026-09-23c (cut)");
 
-    // disable the check that blocks us, then enter the watch loop
+    // enable the ue mod-support
     bypass::universal(&module);
 
     let mut last_report = unsafe { ffi::GetTickCount64() };
-    let mut patched_total: u64 = 0;
-    let mut rounds: u64 = 0;
 
     loop {
         let now = unsafe { ffi::GetTickCount64() };
-        patched_total += uncensor::recon(&module) as u64;
-        rounds += 1;
-
-        if patched_total >= DONE_AFTER {
-            // both managers are handled, there is nothing left to watch for
-            let mut b = Buf::new();
-            b.push_str("done: ");
-            b.push_u64(patched_total);
-            b.push_str(" objects rewritten, watch loop stopped");
-            log_buf(&b);
-            return;
-        }
+        uncensor::tick(&module);
 
         if now.wrapping_sub(last_report) >= HEARTBEAT_MS {
             last_report = now;
             let mut b = Buf::new();
             b.push_str("watching: ");
-            b.push_u64(rounds);
-            b.push_str(" rounds scanned, ");
-            b.push_u64(patched_total);
-            b.push_str(" objects rewritten");
+            b.push_u64(uncensor::rounds());
+            b.push_str(" rounds, manager 0x");
+            b.push_hex(uncensor::manager() as u64, 0);
+            b.push_str(", ");
+            b.push_u64(uncensor::patched_total());
+            b.push_str(" patched (");
+            b.push_u64(uncensor::repatched());
+            b.push_str(" re)");
             log_buf(&b);
         }
 

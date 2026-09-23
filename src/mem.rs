@@ -38,44 +38,6 @@ impl Module {
     }
 }
 
-pub fn is_code(module: &Module, addr: usize) -> bool {
-    let mut hit = false;
-    unsafe {
-        let base = module.base;
-        if *(base as *const u16) != 0x5A4D {
-            return false;
-        }
-        let e_lfanew = *((base + 0x3C) as *const u32) as usize;
-        let pe = base + e_lfanew;
-        if *(pe as *const u32) != 0x0000_4550 {
-            return false;
-        }
-        let nsections = *((pe + 6) as *const u16) as usize;
-        let opt_size = *((pe + 20) as *const u16) as usize;
-        let opt = pe + 24;
-        if *(opt as *const u16) != 0x20B {
-            return false;
-        }
-        let sh = opt + opt_size;
-        let mut i = 0;
-        while i < nsections {
-            let e = sh + i * 40;
-            let vsize = *((e + 8) as *const u32) as usize;
-            let vaddr = *((e + 12) as *const u32) as usize;
-            let chars = *((e + 36) as *const u32);
-            if chars & 0x2000_0000 != 0 {
-                // IMAGE_SCN_MEM_EXECUTE
-                let s = base + vaddr;
-                if addr >= s && addr < s + vsize {
-                    hit = true;
-                }
-            }
-            i += 1;
-        }
-    }
-    hit
-}
-
 unsafe fn size_of_image(base: usize) -> Option<usize> {
     if *(base as *const u16) != 0x5A4D {
         return None;
@@ -108,6 +70,16 @@ pub unsafe fn read_raw(addr: usize, out: *mut u8, len: usize) -> usize {
         0
     } else {
         got
+    }
+}
+
+pub fn read_u8(addr: usize) -> Option<u8> {
+    let mut v: u8 = 0;
+    let got = unsafe { read_raw(addr, &mut v, 1) };
+    if got == 1 {
+        Some(v)
+    } else {
+        None
     }
 }
 
@@ -156,6 +128,10 @@ pub fn write_bytes(addr: usize, data: &[u8]) -> bool {
         )
     };
     ok != 0 && wrote == data.len()
+}
+
+pub fn write_u8(addr: usize, v: u8) -> bool {
+    write_bytes(addr, &[v])
 }
 
 pub fn write_u64(addr: usize, v: u64) -> bool {

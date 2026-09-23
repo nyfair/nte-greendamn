@@ -3,7 +3,7 @@
 ## Key Features
 
 - **Censorship Remover** — zeroes the fade/hide distances and the fade curves on the camera manager, so the character stays visible no matter how close the camera gets.
-- **Tiny and idle** — about 20 KB on disk, no CPU/GPU/Memory usage, automatically exit after completion.
+- **Tiny and idle** — No CPU/GPU/Memory usage.
 - **Mod Loader** — put mod files into `Client\WindowsNoEditor\HT\Binaries\Win64\~mods` folder in the games file directory.
 
 ## How to use
@@ -30,7 +30,7 @@ Load `nte-greendamn.asi` with whatever ASI loader you already use.
 ## 功能特色
 
 - **反河蟹** —— 清零相机管理器上的淡出/隐藏距离和淡出曲线，相机贴得再近，角色也不会淡出或被隐藏。
-- **小巧不常驻** —— 磁盘占用约 20 KB，不占用任何 CPU / GPU / 内存资源，执行完后自动退出。
+- **小巧不常驻** —— 不占用任何 CPU / GPU / 内存资源。
 - **模组加载** —— 把mod文件放入游戏的`Client\WindowsNoEditor\HT\Binaries\Win64\~mods`文件夹
 
 ## 使用方法
