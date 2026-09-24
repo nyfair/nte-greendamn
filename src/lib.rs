@@ -73,7 +73,7 @@ fn run() {
     b.push_str(" size=0x");
     b.push_hex(module.size as u64, 0);
     log::log_buf(&b);
-    log::line("nte-greendamn build 2026-09-23c (cut)");
+    log::line("nte-greendamn build 2026-09-24a (1.4)");
 
     // enable the ue mod-support
     bypass::universal(&module);
