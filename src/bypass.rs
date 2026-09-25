@@ -56,8 +56,7 @@ impl Pattern {
     }
 }
 
-/// Walks the module image in chunks, comparing byte by byte; a hit that spans two chunks
-/// is caught by the trailing `len - 1` bytes kept at the head of `win`
+/// Walks the module image in chunks, is caught by the trailing `len - 1` bytes kept at the head of `win`
 fn find(module: &Module, ida: &str) -> Option<usize> {
     let p = Pattern::parse(ida);
     if p.len == 0 || p.len > module.size {
@@ -136,8 +135,7 @@ fn log_hex(prefix: &str, v: u64, suffix: &str) {
     log::log_buf(&b);
 }
 
-/// Finds the signature, follows the jmp/call behind it to the target function and rewrites
-/// that function to always return true
+/// Finds the signature, follows the jmp/call behind it to the target function and rewrites that function to always return true
 pub fn universal(module: &Module) {
     let Some(hit) = find(module, SIG) else {
         log::line("bypass: signature not found, skipped");

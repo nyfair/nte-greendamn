@@ -73,10 +73,11 @@ fn run() {
     b.push_str(" size=0x");
     b.push_hex(module.size as u64, 0);
     log::log_buf(&b);
-    log::line("nte-greendamn build 2026-09-24a (1.4)");
+    log::line("nte-greendamn build 2026-09-25 (1.4.7)");
 
     // enable the ue mod-support
     bypass::universal(&module);
+    uncensor::init(&module);
 
     let mut last_report = unsafe { ffi::GetTickCount64() };
 

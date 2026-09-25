@@ -5,7 +5,8 @@ use crate::log;
 use crate::mem::*;
 
 // Offsets::GWorld
-const GWORLD_RVA: usize = 0x0F6D8DB0;
+static GWORLD_SLOT: AtomicUsize = AtomicUsize::new(0);
+static NEXT_GWORLD_SCAN: AtomicU64 = AtomicU64::new(0);
 // UWorld.OwningGameInstance
 const OFF_WORLD_GI: usize = 0x230;
 // UGameInstance.LocalPlayers
@@ -66,6 +67,8 @@ const PLAYER_PITCH_FADE_CURVE: usize = 0x3B60;
 
 const OFF_TARRAY_DATA: usize = 0x00;
 const OFF_TARRAY_NUM: usize = 0x08;
+const SCAN_CHUNK: usize = 0x1000;
+const SCAN_RETRY_ROUNDS: u64 = 2;
 const EXPECT_SPEED: f32 = 2.;
 const EXPECT_FADE_DIST: f32 = 10000.;
 const EXPECT_HIDE_DIST: f32 = 6400.;
@@ -104,8 +107,16 @@ pub fn repatched() -> u64 {
 
 /// Resolve the current camera manager through the controller chain. None while loading / between worlds.
 fn resolve(module: &Module) -> Option<usize> {
-    let world = read_u64(module.base + GWORLD_RVA).unwrap_or(0) as usize;
-    if world == 0 || !valid_object(module, world) {
+    let slot = GWORLD_SLOT.load(Ordering::Acquire);
+    if slot == 0 || !module.contains(slot) {
+        return None;
+    }
+    let world = read_u64(slot)? as usize;
+    resolve_world(module, world)
+}
+
+fn resolve_world(module: &Module, world: usize) -> Option<usize> {
+    if world == 0 || !valid_object(module, world) || is_cdo_or_archetype(world) {
         return None;
     }
     let gi = read_u64(world + OFF_WORLD_GI).unwrap_or(0) as usize;
@@ -207,8 +218,74 @@ fn patch(mgr: usize) -> bool {
     ok
 }
 
+pub fn init(module: &Module) {
+    if discover_gworld(module) {
+        return;
+    }
+    NEXT_GWORLD_SCAN.store(SCAN_RETRY_ROUNDS, Ordering::Relaxed);
+    log::line("GWorld slot not found; scan will retry");
+}
+
+fn discover_gworld(module: &Module) -> bool {
+    let mut buf = [0u8; SCAN_CHUNK];
+    let end = module.end();
+    let mut addr = module.base;
+    while addr < end {
+        let remaining = end - addr;
+        let want = if remaining < SCAN_CHUNK { remaining } else { SCAN_CHUNK };
+        let got = unsafe { read_raw(addr, buf.as_mut_ptr(), want) };
+        let usable = got & !7usize;
+        let mut i = 0usize;
+        while i < usable {
+            let world = u64::from_ne_bytes([
+                buf[i],
+                buf[i + 1],
+                buf[i + 2],
+                buf[i + 3],
+                buf[i + 4],
+                buf[i + 5],
+                buf[i + 6],
+                buf[i + 7],
+            ]) as usize;
+            let slot = addr + i;
+            if world != 0
+                && (world & 7) == 0
+                && !module.contains(world)
+                && resolve_world(module, world).is_some()
+            {
+                GWORLD_SLOT.store(slot, Ordering::Release);
+                let mut b = Buf::new();
+                b.push_str("GWorld slot 0x");
+                b.push_hex(slot as u64, 0);
+                b.push_str(" (RVA 0x");
+                b.push_hex(slot.wrapping_sub(module.base) as u64, 0);
+                b.push_str("), world 0x");
+                b.push_hex(world as u64, 0);
+                log::log_buf(&b);
+                return true;
+            }
+            i += 8;
+        }
+        if want == 0 {
+            break;
+        }
+        addr += want;
+    }
+    false
+}
+
 pub fn tick(module: &Module) {
-    ROUNDS.fetch_add(1, Ordering::Relaxed);
+    let round = ROUNDS.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    if GWORLD_SLOT.load(Ordering::Acquire) == 0 {
+        if round >= NEXT_GWORLD_SCAN.load(Ordering::Relaxed) {
+            NEXT_GWORLD_SCAN.store(
+                round.wrapping_add(SCAN_RETRY_ROUNDS),
+                Ordering::Relaxed,
+            );
+            discover_gworld(module);
+        }
+        return;
+    }
     let Some(mgr) = resolve(module) else {
         return;
     };
