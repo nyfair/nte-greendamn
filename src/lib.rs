@@ -13,13 +13,19 @@ use core::panic::PanicInfo;
 
 use buf::Buf;
 
-const TARGET_MODULE: &[u8] = b"HTGame.exe";
+const TARGET_NAME: &str = "HTGame.exe";
+const PLUGIN_NAME: &str = "nte-greendamn";
+const BUILD: &str = "2026-10-27";
+const TARGET_MODULE: &[u8] = TARGET_NAME.as_bytes();
 const TICK_MS: u32 = 2_500;
 const HEARTBEAT_MS: u64 = 60_000;
 
 #[panic_handler]
 fn on_panic(_info: &PanicInfo) -> ! {
-    log::line("nte-greendamn panic!");
+    let mut b = Buf::new();
+    b.push_str(PLUGIN_NAME);
+    b.push_str(" panic!");
+    log::log_buf(&b);
     loop {
         unsafe { ffi::Sleep(HEARTBEAT_MS as u32) };
     }
@@ -62,33 +68,51 @@ fn run() {
     let module = match wait_for_module(TARGET_MODULE) {
         Some(m) => m,
         None => {
-            log::line("Not loaded by HTGame.exe");
+            let mut b = Buf::new();
+            b.push_str("Not loaded by ");
+            b.push_str(TARGET_NAME);
+            log::log_buf(&b);
             return;
         }
     };
 
     let mut b = Buf::new();
-    b.push_str("HTGame.exe @ 0x");
+    b.push_str(TARGET_NAME);
+    b.push_str(" @ 0x");
     b.push_hex(module.base as u64, 0);
     b.push_str(" size=0x");
     b.push_hex(module.size as u64, 0);
     log::log_buf(&b);
-    log::line("nte-greendamn build 2026-09-25 (1.4.7)");
+    let mut b = Buf::new();
+    b.push_str(PLUGIN_NAME);
+    b.push_str(" build ");
+    b.push_str(BUILD);
+    log::log_buf(&b);
 
     // enable the ue mod-support
     bypass::universal(&module);
-    uncensor::init(&module);
-
     let mut last_report = unsafe { ffi::GetTickCount64() };
+    #[cfg(feature = "measure")]
+    let (mut measure_counter, m_tick) = (0, 100);
+    #[cfg(feature = "measure")]
+    let (m, mut extra) = (TICK_MS / m_tick, uncensor::State::new());
 
     loop {
         let now = unsafe { ffi::GetTickCount64() };
+        #[cfg(not(feature = "measure"))]
         uncensor::tick(&module);
-
+        #[cfg(feature = "measure")]
+        {
+            if measure_counter == 0 {
+                uncensor::tick(&module);
+            }
+            extra.tick(&module);
+            measure_counter = (measure_counter + 1) % m;
+        }
         if now.wrapping_sub(last_report) >= HEARTBEAT_MS {
             last_report = now;
             let mut b = Buf::new();
-            b.push_str("watching: ");
+            b.push_str("scan: ");
             b.push_u64(uncensor::rounds());
             b.push_str(" rounds, manager 0x");
             b.push_hex(uncensor::manager() as u64, 0);
@@ -100,6 +124,9 @@ fn run() {
             log::log_buf(&b);
         }
 
+        #[cfg(feature = "measure")]
+        unsafe { ffi::Sleep(m_tick) };
+        #[cfg(not(feature = "measure"))]
         unsafe { ffi::Sleep(TICK_MS) };
     }
 }

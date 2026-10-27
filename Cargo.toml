@@ -6,6 +6,10 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = []
+measure = []
+
 [profile.release]
 opt-level = "z"
 lto = true

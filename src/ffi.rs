@@ -1,3 +1,6 @@
+// Kernel32 surface: each build only links the subset it actually calls.
+#![allow(dead_code)]
+
 use core::ffi::c_void;
 
 pub type BOOL = i32;
@@ -93,4 +96,6 @@ unsafe extern "system" {
     pub fn GetLocalTime(out: *mut SystemTime);
 
     pub fn GetTickCount64() -> u64;
+
+    pub fn GetCurrentThreadId() -> DWORD;
 }
