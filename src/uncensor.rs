@@ -1,8 +1,8 @@
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use crate::buf::Buf;
-use crate::log;
-use crate::mem::*;
+use crate::xx::buf::Buf;
+use crate::xx::log;
+use crate::xx::mem::*;
 
 // From the dumper-7 CppSDK dump (CppSDK/SDK/Engine_classes.hpp).
 // UWorld::OwningGameInstance

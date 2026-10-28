@@ -1,17 +1,17 @@
 #![no_std]
 #![allow(non_camel_case_types, non_snake_case, unsafe_op_in_unsafe_fn)]
 
-mod buf;
+mod xx;
 mod bypass;
-mod ffi;
-mod log;
-mod mem;
 mod uncensor;
 
 use core::ffi::c_void;
 use core::panic::PanicInfo;
 
-use buf::Buf;
+use xx::buf::Buf;
+use xx::ffi;
+use xx::log;
+use xx::mem;
 
 const TARGET_NAME: &str = "HTGame.exe";
 const PLUGIN_NAME: &str = "nte-greendamn";

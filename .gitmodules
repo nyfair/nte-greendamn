@@ -1,0 +1,3 @@
+[submodule "src/xx"]
+	path = src/xx
+	url = git@github.com:nyfair/greendamn.git
