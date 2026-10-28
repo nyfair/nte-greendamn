@@ -375,7 +375,7 @@ pub fn tick(module: &Module) {
     if round.wrapping_sub(LAST_REPATCH_ROUND.load(Ordering::Relaxed)) >= REPATCH_LOG_EVERY_ROUNDS {
         LAST_REPATCH_ROUND.store(round, Ordering::Relaxed);
         let mut b = Buf::new();
-        b.push_str("  re-patched 0x");
+        b.push_str("re-patched 0x");
         b.push_hex(mgr as u64, 0);
         b.push_str(if reason == BROKEN_AMEND {
             " (amend reset)"
@@ -400,7 +400,7 @@ fn log_learned(module: &Module, vtable: usize) {
 
 fn log_patched(mgr: usize) {
     let mut b = Buf::new();
-    b.push_str("  patched manager 0x");
+    b.push_str("patched manager 0x");
     b.push_hex(mgr as u64, 0);
     log::log_buf(&b);
 }

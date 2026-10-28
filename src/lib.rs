@@ -17,6 +17,7 @@ const TARGET_NAME: &str = "HTGame.exe";
 const PLUGIN_NAME: &str = "nte-greendamn";
 const BUILD: &str = "2026-10-27";
 const TARGET_MODULE: &[u8] = TARGET_NAME.as_bytes();
+const LOG_NAME: &[u8] = "nte-greendamn.log".as_bytes();
 const TICK_MS: u32 = 2_500;
 const HEARTBEAT_MS: u64 = 60_000;
 
@@ -93,22 +94,11 @@ fn run() {
     bypass::universal(&module);
     let mut last_report = unsafe { ffi::GetTickCount64() };
     #[cfg(feature = "measure")]
-    let (mut measure_counter, m_tick) = (0, 100);
-    #[cfg(feature = "measure")]
-    let (m, mut extra) = (TICK_MS / m_tick, uncensor::State::new());
+    uncensor::extra_init();
 
     loop {
         let now = unsafe { ffi::GetTickCount64() };
-        #[cfg(not(feature = "measure"))]
         uncensor::tick(&module);
-        #[cfg(feature = "measure")]
-        {
-            if measure_counter == 0 {
-                uncensor::tick(&module);
-            }
-            extra.tick(&module);
-            measure_counter = (measure_counter + 1) % m;
-        }
         if now.wrapping_sub(last_report) >= HEARTBEAT_MS {
             last_report = now;
             let mut b = Buf::new();
@@ -124,9 +114,6 @@ fn run() {
             log::log_buf(&b);
         }
 
-        #[cfg(feature = "measure")]
-        unsafe { ffi::Sleep(m_tick) };
-        #[cfg(not(feature = "measure"))]
         unsafe { ffi::Sleep(TICK_MS) };
     }
 }
