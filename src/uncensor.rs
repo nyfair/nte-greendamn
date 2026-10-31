@@ -1,6 +1,7 @@
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use crate::xx::buf::Buf;
+use crate::xx::ffi;
 use crate::xx::log;
 use crate::xx::mem::*;
 
@@ -66,8 +67,11 @@ const PLAYER_HIDE_DISTANCE_SQUARE: usize = 0x3B58;
 // AHTPlayerCameraManager::PlayerPitchFadeCurve
 const PLAYER_PITCH_FADE_CURVE: usize = 0x3B60;
 
+// object header block
+const OBJ_BLOCK: usize = 0x28;
 // UE object header: VTable(0x00) ObjectFlags(0x08) InternalIndex(0x0C) Class(0x10) Name(0x18)
 const OFF_FLAGS: usize = 0x08;
+const OFF_CLASS: usize = 0x10;
 // RF_ClassDefaultObject(0x10) | RF_ArchetypeObject(0x20): never live instances
 const RF_CDO_OR_ARCHETYPE: u32 = 0x10 | 0x20;
 const RF_DESTROYED: u32 = 0x8000 | 0x10000;
@@ -76,9 +80,9 @@ const SCAN_CHUNK: usize = 0x10000;
 const EXPECT_SPEED: f32 = 2.;
 const EXPECT_FADE_DIST: f32 = 10000.;
 const EXPECT_HIDE_DIST: f32 = 6400.;
-// re-patch lines are throttled
-const REPATCH_LOG_EVERY_ROUNDS: u64 = 120;
-// intact() reason codes: which part broke
+// Re-patch lines are throttled to one every five minutes.
+const REPATCH_LOG_INTERVAL_MS: u64 = 300_000;
+// intact_reason() reason codes: which part broke
 const INTACT_OK: u8 = 0;
 // override flag was reset
 const BROKEN_AMEND: u8 = 1;
@@ -92,22 +96,46 @@ static RESOLVE_TRIES: AtomicU64 = AtomicU64::new(0);
 static NEXT_SCAN: AtomicU64 = AtomicU64::new(0);
 
 static CUR_MANAGER: AtomicUsize = AtomicUsize::new(0);
-static TARGET: AtomicUsize = AtomicUsize::new(0);
-static PATCHED_TOTAL: AtomicU64 = AtomicU64::new(0);
-static REPATCHED: AtomicU64 = AtomicU64::new(0);
-static LAST_REPATCH_ROUND: AtomicU64 = AtomicU64::new(0);
-static ROUNDS: AtomicU64 = AtomicU64::new(0);
+static TARGET_VTABLE: AtomicUsize = AtomicUsize::new(0);
+static PATCHES: AtomicU64 = AtomicU64::new(0);
+static REPATCHES: AtomicU64 = AtomicU64::new(0);
+static LAST_REPATCH_MS: AtomicU64 = AtomicU64::new(0);
 
-fn is_destroyed(obj: usize) -> bool {
-    matches!(read_u32(obj + OFF_FLAGS), Some(f) if f & RF_DESTROYED != 0)
+struct Described {
+    vtable: usize,
+    flags: u32,
+}
+
+/// Reads the object header once; rejects dead objects.
+/// Template checks remain caller-specific because measure also uses CDOs.
+fn describe(module: &Module, obj: usize) -> Option<Described> {
+    if obj == 0 || obj % 8 != 0 {
+        return None;
+    }
+    let mut blk = [0u8; OBJ_BLOCK];
+    if unsafe { read_raw(obj, blk.as_mut_ptr(), blk.len()) } != blk.len() {
+        return None;
+    }
+    let vtable = rd_u64(&blk, 0) as usize;
+    let flags = rd_u32(&blk, OFF_FLAGS);
+    let class = rd_u64(&blk, OFF_CLASS) as usize;
+    if !module.contains(vtable)
+        || flags & RF_DESTROYED != 0
+        || class == 0
+        || class % 8 != 0
+    {
+        return None;
+    }
+    Some(Described { vtable, flags })
 }
 
 fn valid_object(module: &Module, obj: usize) -> bool {
-    obj != 0 && obj % 8 == 0 && read_u64(obj).is_some_and(|v| module.contains(v as usize)) && !is_destroyed(obj)
+    describe(module, obj).is_some()
 }
 
+#[cfg(feature = "measure")]
 fn is_cdo_or_archetype(obj: usize) -> bool {
-    matches!(read_u32(obj + 0x08), Some(f) if f & RF_CDO_OR_ARCHETYPE != 0)
+    matches!(read_u32(obj + OFF_FLAGS), Some(f) if f & RF_CDO_OR_ARCHETYPE != 0)
 }
 
 fn array(addr: usize, limit: u32) -> Option<(usize, u32)> {
@@ -119,8 +147,16 @@ fn array(addr: usize, limit: u32) -> Option<(usize, u32)> {
     Some((data, num))
 }
 
+fn rd_u32(b: &[u8], i: usize) -> u32 {
+    u32::from_le_bytes(b[i..i + 4].try_into().unwrap())
+}
+
 fn rd_u64(b: &[u8], i: usize) -> u64 {
     u64::from_le_bytes(b[i..i + 8].try_into().unwrap())
+}
+
+fn rd_f32(b: &[u8], i: usize) -> f32 {
+    f32::from_bits(rd_u32(b, i))
 }
 
 fn scan<F>(module: &Module, window: usize, mut test: F) -> Option<usize>
@@ -163,9 +199,10 @@ where
 }
 
 /// Walks World -> GameInstance -> LocalPlayers -> PlayerController -> PlayerCameraManager.
-/// None when any link is missing, not an object, or a CDO/archetype.
+/// Returns None when any required link is missing or invalid.
 fn resolve_world(module: &Module, world: usize) -> Option<(usize, usize)> {
-    if world == 0 || !valid_object(module, world) || is_cdo_or_archetype(world) {
+    let d = describe(module, world)?;
+    if d.flags & RF_CDO_OR_ARCHETYPE != 0 {
         return None;
     }
     let gi = read_u64(world + OFF_WORLD_GI).unwrap_or(0) as usize;
@@ -186,16 +223,6 @@ fn resolve_world(module: &Module, world: usize) -> Option<(usize, usize)> {
         return None;
     }
     Some((pc, mgr))
-}
-
-/// Resolve the current camera manager through the controller chain. None while loading / between worlds.
-fn resolve_manager(module: &Module) -> Option<usize> {
-    let slot = WORLD_SLOT.load(Ordering::Acquire);
-    if slot == 0 || !module.contains(slot) {
-        return None;
-    }
-    let world = read_u64(slot)? as usize;
-    resolve_world(module, world).map(|w| w.1)
 }
 
 fn discover_gworld(module: &Module) -> Option<usize> {
@@ -253,41 +280,48 @@ fn log_gworld(slot: usize, world: usize, module: &Module) {
 }
 
 fn shipped_values(obj: usize) -> bool {
-    is_default(
-        read_f32(obj + PLAYER_FADE_SPEED).unwrap_or(f32::NAN),
-        read_f32(obj + PLAYER_FADE_DISTANCE_SQUARE).unwrap_or(f32::NAN),
-        read_f32(obj + PLAYER_HIDE_DISTANCE_SQUARE).unwrap_or(f32::NAN),
-    )
-}
-
-fn is_default(speed: f32, fade_dist: f32, hide_dist: f32) -> bool {
+    // The shipped fingerprint is three adjacent floats; read them together.
+    let mut blk = [0u8; PLAYER_HIDE_DISTANCE_SQUARE + 4 - PLAYER_FADE_SPEED];
+    if unsafe { read_raw(obj + PLAYER_FADE_SPEED, blk.as_mut_ptr(), blk.len()) } != blk.len() {
+        return false;
+    }
+    let speed = rd_f32(&blk, 0);
+    let fade_dist = rd_f32(&blk, PLAYER_FADE_DISTANCE_SQUARE - PLAYER_FADE_SPEED);
+    let hide_dist = rd_f32(&blk, PLAYER_HIDE_DISTANCE_SQUARE - PLAYER_FADE_SPEED);
     (speed - EXPECT_SPEED).abs() < 1e-4
         && (fade_dist - EXPECT_FADE_DIST).abs() < 1e-4
         && (hide_dist - EXPECT_HIDE_DIST).abs() < 1e-4
 }
 
-/// reason the manager is not intact (INTACT_OK when everything holds)
+/// Returns why the manager is not intact (INTACT_OK when everything holds).
 fn intact_reason(mgr: usize) -> u8 {
     let mut i = 0usize;
     while i < SETTINGS.len() {
         let base = mgr + SETTINGS[i];
-        if read_u8(base + OFF_FADE_AMEND) != Some(1)
-            || read_u8(base + OFF_HIDE_AMEND) != Some(1)
+        // The two FCameraInstantSetting structs occupy one 16-byte span.
+        let mut blk = [0u8; OFF_HIDE_TARGET + 4 - OFF_FADE_AMEND];
+        if unsafe { read_raw(base + OFF_FADE_AMEND, blk.as_mut_ptr(), blk.len()) } != blk.len()
+            || blk[0] != 1
+            || blk[OFF_HIDE_AMEND - OFF_FADE_AMEND] != 1
         {
             return BROKEN_AMEND;
         }
-        if read_f32(base + OFF_FADE_TARGET) != Some(0.0)
-            || read_f32(base + OFF_HIDE_TARGET) != Some(0.0)
+        if rd_f32(&blk, OFF_FADE_TARGET - OFF_FADE_AMEND) != 0.0
+            || rd_f32(&blk, OFF_HIDE_TARGET - OFF_FADE_AMEND) != 0.0
         {
             return BROKEN_TARGET;
         }
         i += 1;
     }
-    if read_u64(mgr + ACTOR_FADE_CURVE) == Some(0)
-        && read_u64(mgr + PLAYER_PITCH_FADE_CURVE) == Some(0)
+    let mut blk = [0u8; PLAYER_PITCH_FADE_CURVE + 8 - PLAYER_FADE_DISTANCE_SQUARE];
+    if unsafe { read_raw(mgr + PLAYER_FADE_DISTANCE_SQUARE, blk.as_mut_ptr(), blk.len()) } != blk.len() {
+        return BROKEN_CACHED;
+    }
+    if rd_f32(&blk, 0) == 0.0
+        && rd_f32(&blk, PLAYER_HIDE_DISTANCE_SQUARE - PLAYER_FADE_DISTANCE_SQUARE) == 0.0
+        && rd_u64(&blk, PLAYER_PITCH_FADE_CURVE - PLAYER_FADE_DISTANCE_SQUARE) == 0
+        && read_u64(mgr + ACTOR_FADE_CURVE) == Some(0)
         && read_f32(mgr + COLLISION_FADE_DURATION) == Some(0.0)
-        && read_f32(mgr + PLAYER_FADE_DISTANCE_SQUARE) == Some(0.0)
-        && read_f32(mgr + PLAYER_HIDE_DISTANCE_SQUARE) == Some(0.0)
     {
         INTACT_OK
     } else {
@@ -295,8 +329,15 @@ fn intact_reason(mgr: usize) -> u8 {
     }
 }
 
-/// force the override flag + zero target on all source structs, then clear the cached fields
-fn patch(mgr: usize) -> bool {
+/// Forces the override flag + zero target on all source structs, then clears cached fields.
+fn patch(module: &Module, mgr: usize, vtable: usize) -> bool {
+    // Recheck immediately before writing: a manager can disappear between reads.
+    let Some(d) = describe(module, mgr) else {
+        return false;
+    };
+    if d.vtable != vtable || d.flags & RF_CDO_OR_ARCHETYPE != 0 {
+        return false;
+    }
     let mut ok = true;
     let mut i = 0usize;
     while i < SETTINGS.len() {
@@ -317,65 +358,61 @@ fn patch(mgr: usize) -> bool {
 
 pub fn tick(module: &Module) {
     if !ensure_globals(module) {
+        CUR_MANAGER.store(0, Ordering::Relaxed);
         return;
     }
-    let Some(mgr) = resolve_manager(module) else {
+    let world = read_u64(WORLD_SLOT.load(Ordering::Relaxed)).unwrap_or(0) as usize;
+    let Some((_controller, mgr)) = resolve_world(module, world) else {
+        CUR_MANAGER.store(0, Ordering::Relaxed);
         return;
     };
-    if is_cdo_or_archetype(mgr) {
+    let Some(d) = describe(module, mgr) else {
+        CUR_MANAGER.store(0, Ordering::Relaxed);
+        return;
+    };
+    if d.flags & RF_CDO_OR_ARCHETYPE != 0 {
+        CUR_MANAGER.store(0, Ordering::Relaxed);
         return;
     }
 
-    ROUNDS.fetch_add(1, Ordering::Relaxed);
-    let vtable = match read_u64(mgr) {
-        Some(v) => v as usize,
-        None => return,
-    };
-    let known = TARGET.load(Ordering::Relaxed);
-    if known == 0 {
-        // first contact: only trust the shipped fingerprint, then lock on
+    if d.vtable != TARGET_VTABLE.load(Ordering::Relaxed) {
+        // First contact with this vtable: only trust the shipped fingerprint.
         if !shipped_values(mgr) {
+            CUR_MANAGER.store(0, Ordering::Relaxed);
             return;
         }
-        TARGET.store(vtable, Ordering::Relaxed);
-        log_learned(module, vtable);
-    } else if vtable != known {
-        // a manager class we have never seen
-        if !shipped_values(mgr) {
-            return;
-        }
-        TARGET.store(vtable, Ordering::Relaxed);
-        log_learned(module, vtable);
+        TARGET_VTABLE.store(d.vtable, Ordering::Relaxed);
+        log_learned(module, d.vtable);
     }
 
     let new_mgr = CUR_MANAGER.swap(mgr, Ordering::Relaxed) != mgr;
     if new_mgr {
-        let mut b = Buf::new();
-        b.push_str("manager 0x");
-        b.push_hex(mgr as u64, 0);
-        log::log_buf(&b);
+        log_object("manager", mgr);
     }
 
+    // Scene and dialogue events can restore settings without replacing the manager.
+    // Recheck every tick, but only write when the override or cached values changed.
     let reason = intact_reason(mgr);
     if reason == INTACT_OK {
         return;
     }
-    if !patch(mgr) {
-        log::line("  patch write FAILED");
+    if !patch(module, mgr, d.vtable) {
+        log::line("patch write FAILED");
         return;
     }
-    PATCHED_TOTAL.fetch_add(1, Ordering::Relaxed);
+    PATCHES.fetch_add(1, Ordering::Relaxed);
+    let now = unsafe { ffi::GetTickCount64() };
     if new_mgr {
-        log_patched(mgr);
+        LAST_REPATCH_MS.store(now, Ordering::Relaxed);
+        log_object("patched manager", mgr);
         return;
     }
-    // same manager broken again
-    REPATCHED.fetch_add(1, Ordering::Relaxed);
-    let round = ROUNDS.load(Ordering::Relaxed);
-    if round.wrapping_sub(LAST_REPATCH_ROUND.load(Ordering::Relaxed)) >= REPATCH_LOG_EVERY_ROUNDS {
-        LAST_REPATCH_ROUND.store(round, Ordering::Relaxed);
+    // Same manager broken again; keep the total even when the detail log is throttled.
+    REPATCHES.fetch_add(1, Ordering::Relaxed);
+    if now.wrapping_sub(LAST_REPATCH_MS.load(Ordering::Relaxed)) >= REPATCH_LOG_INTERVAL_MS {
+        LAST_REPATCH_MS.store(now, Ordering::Relaxed);
         let mut b = Buf::new();
-        b.push_str("re-patched 0x");
+        b.push_str("re-patched manager 0x");
         b.push_hex(mgr as u64, 0);
         b.push_str(if reason == BROKEN_AMEND {
             " (amend reset)"
@@ -398,27 +435,24 @@ fn log_learned(module: &Module, vtable: usize) {
     log::log_buf(&b);
 }
 
-fn log_patched(mgr: usize) {
+fn log_object(label: &str, obj: usize) {
     let mut b = Buf::new();
-    b.push_str("patched manager 0x");
-    b.push_hex(mgr as u64, 0);
+    b.push_str(label);
+    b.push_str(" 0x");
+    b.push_hex(obj as u64, 0);
     log::log_buf(&b);
 }
 
-pub fn rounds() -> u64 {
-    ROUNDS.load(Ordering::Relaxed)
+pub fn patches() -> u64 {
+    PATCHES.load(Ordering::Relaxed)
 }
 
-pub fn patched_total() -> u64 {
-    PATCHED_TOTAL.load(Ordering::Relaxed)
+pub fn repatches() -> u64 {
+    REPATCHES.load(Ordering::Relaxed)
 }
 
 pub fn manager() -> usize {
     CUR_MANAGER.load(Ordering::Relaxed)
-}
-
-pub fn repatched() -> u64 {
-    REPATCHED.load(Ordering::Relaxed)
 }
 
 #[cfg(feature = "measure")]

@@ -15,7 +15,7 @@ use xx::mem;
 
 const TARGET_NAME: &str = "HTGame.exe";
 const PLUGIN_NAME: &str = "nte-greendamn";
-const BUILD: &str = "2026-10-27";
+const BUILD: &str = "2026-10-31";
 const TARGET_MODULE: &[u8] = TARGET_NAME.as_bytes();
 const LOG_NAME: &[u8] = "nte-greendamn.log".as_bytes();
 const TICK_MS: u32 = 2_500;
@@ -90,7 +90,7 @@ fn run() {
     b.push_str(BUILD);
     log::log_buf(&b);
 
-    // enable the ue mod-support
+    // Enable UE mod support.
     bypass::universal(&module);
     let mut last_report = unsafe { ffi::GetTickCount64() };
     #[cfg(feature = "measure")]
@@ -102,15 +102,12 @@ fn run() {
         if now.wrapping_sub(last_report) >= HEARTBEAT_MS {
             last_report = now;
             let mut b = Buf::new();
-            b.push_str("scan: ");
-            b.push_u64(uncensor::rounds());
-            b.push_str(" rounds, manager 0x");
+            b.push_str("patches ");
+            b.push_u64(uncensor::patches());
+            b.push_str(", repatches ");
+            b.push_u64(uncensor::repatches());
+            b.push_str(", manager 0x");
             b.push_hex(uncensor::manager() as u64, 0);
-            b.push_str(", ");
-            b.push_u64(uncensor::patched_total());
-            b.push_str(" patched (");
-            b.push_u64(uncensor::repatched());
-            b.push_str(" re)");
             log::log_buf(&b);
         }
 

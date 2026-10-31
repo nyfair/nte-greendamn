@@ -1,9 +1,9 @@
 use core::cmp::min;
 
 use crate::xx::buf::Buf;
-use crate::ffi;
-use crate::log;
-use crate::mem::*;
+use crate::xx::ffi;
+use crate::xx::log;
+use crate::xx::mem::*;
 
 /// mov al, 1; ret - makes the target function always return true
 const PATCH: [u8; 3] = [0xB0, 0x01, 0xC3];
