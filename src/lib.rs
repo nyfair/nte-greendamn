@@ -2,6 +2,7 @@
 #![allow(non_camel_case_types, non_snake_case, unsafe_op_in_unsafe_fn)]
 
 mod xx;
+#[cfg(feature = "bypass")]
 mod bypass;
 mod uncensor;
 
@@ -91,6 +92,7 @@ fn run() {
     log::log_buf(&b);
 
     // Enable UE mod support.
+    #[cfg(feature = "bypass")]
     bypass::universal(&module);
     let mut last_report = unsafe { ffi::GetTickCount64() };
     #[cfg(feature = "measure")]
