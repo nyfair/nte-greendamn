@@ -133,11 +133,6 @@ fn valid_object(module: &Module, obj: usize) -> bool {
     describe(module, obj).is_some()
 }
 
-#[cfg(feature = "measure")]
-fn is_cdo_or_archetype(obj: usize) -> bool {
-    matches!(read_u32(obj + OFF_FLAGS), Some(f) if f & RF_CDO_OR_ARCHETYPE != 0)
-}
-
 fn array(addr: usize, limit: u32) -> Option<(usize, u32)> {
     let data = read_u64(addr)? as usize;
     let num = read_u32(addr + OFF_TARRAY_NUM)?;
@@ -236,7 +231,6 @@ fn discover_gworld(module: &Module) -> Option<usize> {
 }
 
 /// Finds the GWorld slot, retrying a few ticks apart.
-#[cfg(not(feature = "measure"))]
 fn ensure_globals(module: &Module) -> bool {
     if WORLD_SLOT.load(Ordering::Relaxed) != 0 {
         return true;
@@ -361,6 +355,10 @@ pub fn tick(module: &Module) {
         CUR_MANAGER.store(0, Ordering::Relaxed);
         return;
     }
+    #[cfg(feature = "spine")]
+    if ensure_spine_globals(module) {
+        patch_awaken(module);
+    }
     let world = read_u64(WORLD_SLOT.load(Ordering::Relaxed)).unwrap_or(0) as usize;
     let Some((_controller, mgr)) = resolve_world(module, world) else {
         CUR_MANAGER.store(0, Ordering::Relaxed);
@@ -454,6 +452,9 @@ pub fn repatches() -> u64 {
 pub fn manager() -> usize {
     CUR_MANAGER.load(Ordering::Relaxed)
 }
+
+#[cfg(feature = "spine")]
+include!("spine.rs");
 
 #[cfg(feature = "measure")]
 include!("extra.rs");
