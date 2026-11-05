@@ -2,8 +2,9 @@
 
 ## Key Features
 
-- **Censorship Remover** — zeroes the fade/hide distances and the fade curves on the camera manager, so the character stays visible no matter how close the camera gets.
-- **Mod Loader** — put mod files into `Client\WindowsNoEditor\HT\Content\Paks\~mods` folder in the games file directory.
+- **Censorship Remover** — Zeroes the fade/hide distances and the fade curves on the camera manager, so the character stays visible no matter how close the camera gets.
+- **Mod Loader** — Put mod files into `Client\WindowsNoEditor\HT\Content\Paks\~mods` folder in the games file directory.
+- **Awakening Live2D (Optional)** — Displays Live2D animations on the awakening page regardless of the character’s awakening level.
 - **Tiny and idle** — No CPU/GPU/Memory usage.
 
 ## How to use
@@ -31,6 +32,7 @@ Load `nte-greendamn.asi` with whatever ASI loader you already use.
 
 - **反河蟹** —— 清零相机管理器上的淡出/隐藏距离和淡出曲线，相机贴得再近，角色也不会淡出或被隐藏。
 - **模组加载** —— 把mod文件放入游戏的`Client\WindowsNoEditor\HT\Content\Paks\~mods`文件夹
+- **觉醒Live2D动画（可选）** —— 觉醒页面无视溯源等级展示Live2D
 - **小巧不常驻** —— 不占用任何 CPU / GPU / 内存资源。
 
 ## 使用方法

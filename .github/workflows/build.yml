@@ -19,10 +19,20 @@ jobs:
         rustup update
         cargo build --release
         move target\release\nte_greendamn.dll .\nte-greendamn.asi
+        cargo build --release --features spine
+        mkdir live2d
+        move target\release\nte_greendamn.dll live2d\nte-greendamn.asi
     - name: Upload
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: nte-greendamn.asi
         tag: latest
+        overwrite: true
+    - name: Upload Live2D
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: live2d\nte-greendamn.asi
+        tag: latest_live2d
         overwrite: true
