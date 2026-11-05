@@ -7,8 +7,10 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [features]
-default = []
-measure = []
+default = ["bypass"]
+bypass = []
+spine = []
+measure = ["spine"]
 
 [profile.release]
 opt-level = "z"
