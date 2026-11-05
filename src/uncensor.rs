@@ -25,47 +25,47 @@ const OFF_HIDE_AMEND: usize = 0x560;
 const OFF_HIDE_TARGET: usize = 0x564;
 // AHTPlayerCameraManager members with an FCameraSettings base.
 const SETTINGS: [usize; 28] = [
-    0x4940, // RunSettings
-    0x5028, // FightingSettings
-    0x5700, // InLiftSettings
-    0x5C70, // JumpingSettings
-    0x61E8, // LockTargetSettings
-    0x6768, // SpecialBoxSettings
-    0x6CE0, // TimeClockSettings
-    0x7258, // BossCameraSettings
-    0x77D0, // TenacityBreakCameraSettings
-    0x7DD8, // SwimmingSettings
-    0x8350, // ClimbingSettings
-    0x8910, // ShopSettings
-    0x8ED0, // CarTPSettings
-    0x9460, // SitSettings
-    0x99D0, // BoardTrainSettings
-    0x9F60, // DialogueCameraSettings
-    0xA4F8, // LoadingCameraSettings
-    0xAA78, // GlidingCameraSettings
-    0xAFE8, // LiningTargetCameraSettings
-    0xB558, // RollerCoasterCameraSettings
-    0xBAC8, // NormalCameraSettings
-    0xC038, // RideNormalCameraSettings
-    0xC5A8, // LockNpcSettings
-    0xCBD0, // SelfieSettings
-    0xD280, // CustomCameraSetting
-    0xD840, // VersatileSettings
-    0xDDB0, // LastStateRealVersatileSettings
-    0xEB90, // SelfCameraSetting
+    0x4950, // RunSettings
+    0x5038, // FightingSettings
+    0x5710, // InLiftSettings
+    0x5C80, // JumpingSettings
+    0x61F8, // LockTargetSettings
+    0x6778, // SpecialBoxSettings
+    0x6CF0, // TimeClockSettings
+    0x7268, // BossCameraSettings
+    0x77E0, // TenacityBreakCameraSettings
+    0x7DE8, // SwimmingSettings
+    0x8360, // ClimbingSettings
+    0x8920, // ShopSettings
+    0x8EE0, // CarTPSettings
+    0x9470, // SitSettings
+    0x99E0, // BoardTrainSettings
+    0x9F70, // DialogueCameraSettings
+    0xA508, // LoadingCameraSettings
+    0xAA88, // GlidingCameraSettings
+    0xAFF8, // LiningTargetCameraSettings
+    0xB568, // RollerCoasterCameraSettings
+    0xBAD8, // NormalCameraSettings
+    0xC048, // RideNormalCameraSettings
+    0xC5B8, // LockNpcSettings
+    0xCBE0, // SelfieSettings
+    0xD290, // CustomCameraSetting
+    0xD850, // VersatileSettings
+    0xDDC0, // LastStateRealVersatileSettings
+    0xEBA0, // SelfCameraSetting
 ];
 // AHTPlayerCameraManager::ActorFadeCurve
-const ACTOR_FADE_CURVE: usize = 0x37C8;
+const ACTOR_FADE_CURVE: usize = 0x37D0;
 // AHTPlayerCameraManager::CollisionFadeTotalDuration
-const COLLISION_FADE_DURATION: usize = 0x3820;
+const COLLISION_FADE_DURATION: usize = 0x3828;
 // AHTPlayerCameraManager::PlayerFadeSpeed
-const PLAYER_FADE_SPEED: usize = 0x3B50;
+const PLAYER_FADE_SPEED: usize = 0x3B58;
 // AHTPlayerCameraManager::PlayerFadeDistanceSquare
-const PLAYER_FADE_DISTANCE_SQUARE: usize = 0x3B54;
+const PLAYER_FADE_DISTANCE_SQUARE: usize = 0x3B5C;
 // AHTPlayerCameraManager::PlayerHideDistanceSquare
-const PLAYER_HIDE_DISTANCE_SQUARE: usize = 0x3B58;
+const PLAYER_HIDE_DISTANCE_SQUARE: usize = 0x3B60;
 // AHTPlayerCameraManager::PlayerPitchFadeCurve
-const PLAYER_PITCH_FADE_CURVE: usize = 0x3B60;
+const PLAYER_PITCH_FADE_CURVE: usize = 0x3B68;
 
 // object header block
 const OBJ_BLOCK: usize = 0x28;

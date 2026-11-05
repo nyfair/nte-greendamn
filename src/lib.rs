@@ -15,7 +15,7 @@ use xx::mem;
 
 const TARGET_NAME: &str = "HTGame.exe";
 const PLUGIN_NAME: &str = "nte-greendamn";
-const BUILD: &str = "2026-10-31";
+const BUILD: &str = "2026-11-05";
 const TARGET_MODULE: &[u8] = TARGET_NAME.as_bytes();
 const LOG_NAME: &[u8] = "nte-greendamn.log".as_bytes();
 const TICK_MS: u32 = 2_500;
