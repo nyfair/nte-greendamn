@@ -17,6 +17,16 @@ const OFF_PC_MANAGER: usize = 0x380;
 // TArray<UPlayer*>: Data @ +0x00, Num @ +0x08
 const OFF_TARRAY_NUM: usize = 0x08;
 
+// Local character fields shared by measure and vehicle.
+// AController::Pawn / AHTPlayerController::HTPlayerOwner.
+#[cfg(any(feature = "measure", feature = "vehicle"))]
+const OFF_CONTROLLER_PAWN: usize = 0x0308;
+#[cfg(any(feature = "measure", feature = "vehicle"))]
+const OFF_PC_HT_PLAYER_OWNER: usize = 0x13F0;
+// AHTPlayerCharacter::CurrentDisplayCharacterID.
+#[cfg(any(feature = "measure", feature = "vehicle"))]
+const OFF_CURRENT_CHARACTER_ID: usize = 0x2ACC;
+
 // FCameraSettings::PlayerFadeDistance::{bAmend u8@0, TargetValue f32@4}
 const OFF_FADE_AMEND: usize = 0x558;
 const OFF_FADE_TARGET: usize = 0x55C;
@@ -109,7 +119,7 @@ struct Described {
 /// Reads the object header once; rejects dead objects.
 /// Template checks remain caller-specific because measure also uses CDOs.
 fn describe(module: &Module, obj: usize) -> Option<Described> {
-    if obj == 0 || obj % 8 != 0 {
+    if obj == 0 || !obj.is_multiple_of(8) {
         return None;
     }
     let mut blk = [0u8; OBJ_BLOCK];
@@ -122,7 +132,7 @@ fn describe(module: &Module, obj: usize) -> Option<Described> {
     if !module.contains(vtable)
         || flags & RF_DESTROYED != 0
         || class == 0
-        || class % 8 != 0
+        || !class.is_multiple_of(8)
     {
         return None;
     }
@@ -193,9 +203,8 @@ where
     None
 }
 
-/// Walks World -> GameInstance -> LocalPlayers -> PlayerController -> PlayerCameraManager.
-/// Returns None when any required link is missing or invalid.
-fn resolve_world(module: &Module, world: usize) -> Option<(usize, usize)> {
+/// Walks World -> GameInstance -> LocalPlayers -> PlayerController.
+fn local_controller(module: &Module, world: usize) -> Option<usize> {
     let d = describe(module, world)?;
     if d.flags & RF_CDO_OR_ARCHETYPE != 0 {
         return None;
@@ -213,6 +222,11 @@ fn resolve_world(module: &Module, world: usize) -> Option<(usize, usize)> {
     if pc == 0 || !valid_object(module, pc) {
         return None;
     }
+    Some(pc)
+}
+
+fn resolve_world(module: &Module, world: usize) -> Option<(usize, usize)> {
+    let pc = local_controller(module, world)?;
     let mgr = read_u64(pc + OFF_PC_MANAGER).unwrap_or(0) as usize;
     if mgr == 0 || !valid_object(module, mgr) {
         return None;
@@ -350,7 +364,19 @@ fn patch(module: &Module, mgr: usize, vtable: usize) -> bool {
     ok
 }
 
-pub fn tick(module: &Module) {
+#[derive(Default)]
+pub struct TickState {
+    #[cfg(feature = "vehicle")]
+    vehicle: VehicleState,
+}
+
+pub fn tick(module: &Module, _state: &mut TickState) {
+    tick_camera_and_spine(module);
+    #[cfg(feature = "vehicle")]
+    _state.vehicle.tick(module);
+}
+
+fn tick_camera_and_spine(module: &Module) {
     if !ensure_globals(module) {
         CUR_MANAGER.store(0, Ordering::Relaxed);
         return;
@@ -453,8 +479,14 @@ pub fn manager() -> usize {
     CUR_MANAGER.load(Ordering::Relaxed)
 }
 
+#[cfg(any(feature = "spine", feature = "vehicle"))]
+include!("reflection.rs");
+
 #[cfg(feature = "spine")]
 include!("spine.rs");
 
 #[cfg(feature = "measure")]
 include!("extra.rs");
+
+#[cfg(feature = "vehicle")]
+include!("vehicle.rs");

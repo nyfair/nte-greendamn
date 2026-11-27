@@ -10,7 +10,8 @@ crate-type = ["cdylib"]
 default = ["bypass"]
 bypass = []
 spine = []
-measure = ["spine"]
+measure = ["spine", "vehicle"]
+vehicle = []
 
 [profile.release]
 opt-level = "z"
