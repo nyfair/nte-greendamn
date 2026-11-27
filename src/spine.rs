@@ -1,8 +1,5 @@
-use core::cmp::min;
 use core::ffi::c_void;
 
-// Offsets::ProcessEventIdx
-const PROCESSEVENT_IDX: usize = 0x4C;
 // UHTUI_CharacterAwaken presentation members.
 const OFF_AWAKEN_SPINE: usize = 0x1500;
 // UHTUI_CharacterAwakenSpine presentation-only widget members.
@@ -16,7 +13,7 @@ const OFF_WIDGET_VISIBILITY: usize = 0xDC;
 const VISIBLE: u8 = 0;
 const COLLAPSED: u8 = 1;
 
-// ---- object / array / FName ----
+// ---- object / array ----
 const OFF_MAX_ELEMENTS: usize = 0x10;
 const OFF_NUM_ELEMENTS: usize = 0x14;
 const OFF_MAX_CHUNKS: usize = 0x18;
@@ -32,20 +29,11 @@ const UA_MAX_MAX_CHUNKS: u32 = 0x5FF;
 const UA_CHUNK_ALIGN: u32 = 0x10;
 const UA_MIN_PER_CHUNK: u32 = 0x8000;
 const UA_MAX_PER_CHUNK: u32 = 0x8_0000;
-const FNAME_BLOCKS_MAX: usize = 8192;
-const FNAME_BLOCK_BYTES_MAX: usize = 0x2_0000;
 
 const MAX_ELEMENTS: u32 = 8_000_000;
 const MAX_CHUNKS: u32 = 0x1000;
-const MAX_SUPER_DEPTH: usize = 64;
 // Only persistent UI-subsystem acquisition visits GObjects, in bounded batches.
 const UI_MANAGER_SCAN_BATCH: u32 = 32_768;
-
-const POOL_BLOCKS: usize = 0x10;
-const BLOCK_SHIFT: u32 = 16;
-const BLOCK_MASK: u32 = 0xFFFF;
-const ENTRY_HEADER: usize = 2;
-const MAX_NAME: usize = 64;
 
 const AWAKEN_CLASS: &[u8] = b"HTUI_CharacterAwaken";
 const AWAKEN_SPINE_CLASS: &[u8] = b"HTUI_CharacterAwakenSpine";
@@ -74,18 +62,7 @@ const LAYER_ENTRY_STRIDE: usize = 0x18;
 const OFF_LAYER_CONTAINER: usize = 0x08;
 const MAX_UI_MAP_SLOTS: u32 = 4096;
 
-// UObject / UField / UStruct / UClass / UFunction members.
-const OFF_NAME: usize = 0x18;
-const OFF_OUTER: usize = 0x20;
-const OFF_FIELD_NEXT: usize = 0x28;
-const OFF_SUPER_STRUCT: usize = 0x40;
-const OFF_STRUCT_CHILDREN: usize = 0x48;
-const OFF_CAST_FLAGS: usize = 0xD8;
-const OFF_FUNCTION_FLAGS: usize = 0xB0;
-const FUNC_NATIVE: u32 = 0x400;
-
 static GOBJECTS: AtomicUsize = AtomicUsize::new(0);
-static GNAMES: AtomicUsize = AtomicUsize::new(0);
 // GameInstance outlives temporary World/camera links while independent UI screens are open.
 static CUR_GAME_INSTANCE: AtomicUsize = AtomicUsize::new(0);
 static CUR_UI_MANAGER: AtomicUsize = AtomicUsize::new(0);
@@ -122,10 +99,6 @@ fn gobjects() -> usize {
     GOBJECTS.load(Ordering::Relaxed)
 }
 
-fn gnames() -> usize {
-    GNAMES.load(Ordering::Relaxed)
-}
-
 fn chunk_at(chunks: usize, chunk_idx: u32) -> usize {
     if chunks == 0 {
         return 0;
@@ -150,65 +123,6 @@ fn matches(src: &[u8], tgt: &[u8]) -> bool {
     false
 }
 
-fn read_fname(pool: usize, id: u32, out: &mut [u8]) -> usize {
-    let block = match read_u64(pool + POOL_BLOCKS + ((id >> BLOCK_SHIFT) as usize) * 8) {
-        Some(v) if v != 0 => v as usize,
-        _ => return 0,
-    };
-    let entry = block + (id & BLOCK_MASK) as usize * 2;
-    let h = match read_u16(entry) {
-        Some(v) => v,
-        None => return 0,
-    };
-    // UE 5.6 FNameEntryHeader: bIsWide:1, LowercaseProbeHash:5, Len:10
-    let mut len = (h >> 6) as usize;
-    let wide = (h & 1) != 0;
-    if len == 0 {
-        return 0;
-    }
-    if len > MAX_NAME {
-        len = MAX_NAME;
-    }
-    let limit = min(out.len(), len);
-    let mut buf = [0u8; MAX_NAME * 2];
-    let want = min(if wide { limit * 2 } else { limit }, buf.len());
-    let got = unsafe { read_raw(entry + ENTRY_HEADER, buf.as_mut_ptr(), want) };
-    let mut n = 0usize;
-    if wide {
-        let mut i = 0usize;
-        while i + 1 < got && n < limit {
-            if buf[i + 1] != 0 {
-                break;
-            }
-            let c = buf[i];
-            if !(0x20..0x7f).contains(&c) {
-                break;
-            }
-            out[n] = c;
-            n += 1;
-            i += 2;
-        }
-    } else {
-        while n < limit && n < got {
-            let c = buf[n];
-            if !(0x20..0x7f).contains(&c) {
-                break;
-            }
-            out[n] = c;
-            n += 1;
-        }
-    }
-    n
-}
-
-fn read_ptr(address: usize) -> usize {
-    read_u64(address).unwrap_or(0) as usize
-}
-
-fn heapish(module: &Module, p: u64) -> bool {
-    p != 0 && p % 8 == 0 && p >= 0x1_0000 && !module.contains(p as usize)
-}
-
 fn check_objects(b: &[u8], i: usize) -> bool {
     let max = rd_u32(b, i + OFF_MAX_ELEMENTS);
     let num = rd_u32(b, i + OFF_NUM_ELEMENTS);
@@ -217,19 +131,18 @@ fn check_objects(b: &[u8], i: usize) -> bool {
     if num <= UA_MIN_ELEMENTS || max <= UA_MIN_MAX_ELEMENTS || num > max {
         return false;
     }
-    if num_chunks < UA_MIN_CHUNKS || num_chunks > UA_MAX_CHUNKS {
+    if !(UA_MIN_CHUNKS..=UA_MAX_CHUNKS).contains(&num_chunks) {
         return false;
     }
-    if max_chunks < UA_MIN_MAX_CHUNKS || max_chunks > UA_MAX_MAX_CHUNKS || num_chunks > max_chunks {
+    if !(UA_MIN_MAX_CHUNKS..=UA_MAX_MAX_CHUNKS).contains(&max_chunks) || num_chunks > max_chunks {
         return false;
     }
-    if max % UA_CHUNK_ALIGN != 0 {
+    if !max.is_multiple_of(UA_CHUNK_ALIGN) {
         return false;
     }
     let per_chunk = max / max_chunks;
-    if per_chunk % UA_CHUNK_ALIGN != 0
-        || per_chunk < UA_MIN_PER_CHUNK
-        || per_chunk > UA_MAX_PER_CHUNK
+    if !per_chunk.is_multiple_of(UA_CHUNK_ALIGN)
+        || !(UA_MIN_PER_CHUNK..=UA_MAX_PER_CHUNK).contains(&per_chunk)
     {
         return false;
     }
@@ -280,42 +193,6 @@ fn objects_contain(a: usize, world: usize) -> bool {
 fn discover_objects(module: &Module, world: usize) -> Option<usize> {
     scan(module, 0x20, |at, b, i| {
         check_objects(b, i) && objects_contain(at, world)
-    })
-}
-
-fn names_world(pool: usize, world: usize) -> bool {
-    let class = read_ptr(world + OFF_CLASS);
-    if class == 0 {
-        return false;
-    }
-    let id = read_u32(class + OFF_NAME).unwrap_or(0);
-    let mut buf = [0u8; 8];
-    let n = read_fname(pool, id, &mut buf);
-    // Same two-character suffix tolerance the rest of the file uses, so a uniquified class name cannot disable the whole plugin.
-    n >= 5 && n <= 7 && &buf[..5] == b"World"
-}
-
-fn discover_names(module: &Module, world: usize) -> Option<usize> {
-    scan(module, 0x30, |at, b, i| {
-        if rd_u32(b, i) != 0 {
-            return false;
-        }
-        let cur_block = rd_u32(b, i + 0x08);
-        let cur_cursor = rd_u32(b, i + 0x0C);
-        if cur_block as usize >= FNAME_BLOCKS_MAX {
-            return false;
-        }
-        if cur_cursor < 0x10 || cur_cursor as usize >= FNAME_BLOCK_BYTES_MAX {
-            return false;
-        }
-        let mut k = 0usize;
-        while k < 4 {
-            if !heapish(module, rd_u64(b, i + POOL_BLOCKS + k * 8)) {
-                return false;
-            }
-            k += 1;
-        }
-        names_world(at, world)
     })
 }
 
@@ -372,18 +249,6 @@ fn log_global(label: &str, addr: usize, module: &Module) {
     log::log_buf(&b);
 }
 
-fn named(address: usize, target: &str) -> bool {
-    let Some(name) = read_u64(address) else {
-        return false;
-    };
-    if name >> 32 != 0 {
-        return false;
-    }
-    let mut buf = [0u8; MAX_NAME];
-    let len = read_fname(gnames(), name as u32, &mut buf);
-    len == target.len() && &buf[..len] == target.as_bytes()
-}
-
 fn class_chain_matches(module: &Module, pool: usize, class: usize, target: &[u8]) -> bool {
     let mut cur = class;
     let mut depth = 0usize;
@@ -406,33 +271,6 @@ fn class_chain_matches(module: &Module, pool: usize, class: usize, target: &[u8]
     false
 }
 
-fn find_function(module: &Module, object: usize, name: &str) -> usize {
-    let mut class = read_ptr(object + OFF_CLASS);
-    let mut depth = 0usize;
-    while class != 0 && depth < MAX_SUPER_DEPTH {
-        if !valid_object(module, class) {
-            break;
-        }
-        let mut field = read_ptr(class + OFF_STRUCT_CHILDREN);
-        let mut fields = 0usize;
-        while field != 0 && fields < 8192 {
-            if !valid_object(module, field) {
-                break;
-            }
-            let field_class = read_ptr(field + OFF_CLASS);
-            let cast = read_u64(field_class + OFF_CAST_FLAGS).unwrap_or(0);
-            if cast & 0x80000 != 0 && named(field + OFF_NAME, name) {
-                return field;
-            }
-            field = read_ptr(field + OFF_FIELD_NEXT);
-            fields += 1;
-        }
-        class = read_ptr(class + OFF_SUPER_STRUCT);
-        depth += 1;
-    }
-    0
-}
-
 fn call_function(module: &Module, object: usize, name: &str, params: *mut c_void) -> bool {
     let Some(d) = describe(module, object) else {
         return false;
@@ -441,16 +279,15 @@ fn call_function(module: &Module, object: usize, name: &str, params: *mut c_void
     if function == 0 {
         return false;
     }
-    let entry = read_ptr(d.vtable + PROCESSEVENT_IDX * 8);
+    let Some(invoke) = process_event(module, d.vtable) else {
+        return false;
+    };
     let Some(flags) = read_u32(function + OFF_FUNCTION_FLAGS) else {
         return false;
     };
-    if !module.contains(entry)
-        || !write_bytes(function + OFF_FUNCTION_FLAGS, &(flags | FUNC_NATIVE).to_ne_bytes())
-    {
+    if !write_bytes(function + OFF_FUNCTION_FLAGS, &(flags | FUNC_NATIVE).to_ne_bytes()) {
         return false;
     }
-    let invoke: unsafe extern "system" fn(usize, usize, *mut c_void) = unsafe { core::mem::transmute(entry) };
     // Local visual refresh on the plugin worker; no RPCs or hooks.
     unsafe { invoke(object, function, params) };
     write_bytes(function + OFF_FUNCTION_FLAGS, &flags.to_ne_bytes())

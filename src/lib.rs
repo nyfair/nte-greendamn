@@ -97,10 +97,12 @@ fn run() {
     let mut last_report = unsafe { ffi::GetTickCount64() };
     #[cfg(feature = "measure")]
     uncensor::extra_init();
+    let mut state = uncensor::TickState::default();
 
     loop {
         let now = unsafe { ffi::GetTickCount64() };
-        uncensor::tick(&module);
+        uncensor::tick(&module, &mut state);
+
         if now.wrapping_sub(last_report) >= HEARTBEAT_MS {
             last_report = now;
             let mut b = Buf::new();

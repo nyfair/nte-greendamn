@@ -22,6 +22,12 @@ jobs:
         cargo build --release --features spine
         mkdir live2d
         move target\release\nte_greendamn.dll live2d\nte-greendamn.asi
+        cargo build --release --features vehicle
+        mkdir driver
+        move target\release\nte_greendamn.dll driver\nte-greendamn.asi
+        cargo build --release --features spine,vehicle
+        mkdir live2d+driver
+        move target\release\nte_greendamn.dll live2d+driver\nte-greendamn.asi
     - name: Upload
       uses: svenstaro/upload-release-action@v2
       with:
@@ -35,4 +41,18 @@ jobs:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: live2d\nte-greendamn.asi
         tag: latest_live2d
+        overwrite: true
+    - name: Upload Driver
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: driver\nte-greendamn.asi
+        tag: latest_driver
+        overwrite: true
+    - name: Upload Live2D+Driver
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: live2d+driver\nte-greendamn.asi
+        tag: latest_live2d_driver
         overwrite: true
